@@ -1,14 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, FloatButton, Flex, type GetProp } from "antd";
 import { CommentOutlined, UserOutlined } from "@ant-design/icons";
 import { Bubble, Sender, useXAgent, useXChat } from "@ant-design/x";
 import "./App.css";
-import type { AnyObject } from "@ant-design/x/es/_util/type";
-import type { XRequestParams } from "@ant-design/x/es/x-request";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// Gemini API Key
-const GEMINI_API_KEY = "AIzaSyDUNQ_efhUlh-cWAWIuDW3odMFtA_eRv4c"; // Replace with your actual key
 
 const roles: GetProp<typeof Bubble.List, "roles"> = {
   ai: {
@@ -28,28 +22,40 @@ const roles: GetProp<typeof Bubble.List, "roles"> = {
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [content, setContent] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
 
-  const [agent] = useXAgent<string, { message: string }, string>({
-    request: async ({ message }, { onSuccess, onError }) => {
+  const [agent] = useXAgent<
+    string,
+    { message: string; history: string[] },
+    string
+  >({
+    request: async (
+      { message, history }: { message: string; history: string[] },
+      {
+        onSuccess,
+        onError,
+      }: {
+        onSuccess: (result: string[]) => void;
+        onError: (error: Error) => void;
+      }
+    ) => {
       try {
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-        console.log({ model });
-        const chatSession = await model.startChat({
-          history: [],
-          generationConfig: { maxOutputTokens: 1000 },
+        const response = await fetch("http://localhost:5000/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message,
+          }),
         });
 
-        const result = await chatSession.sendMessage(message);
-        const reply = result.response.text();
-
-        onSuccess([reply]);
+        const data = await response.json();
+        const result = data.response || "No response.";
+        onSuccess([result]);
       } catch (error) {
-        console.error("Gemini API Error:", error);
-        onError(
-          error instanceof Error ? error : new Error("Unknown Gemini error")
-        );
+        console.error("API error:", error);
+        onError(error instanceof Error ? error : new Error("Unknown error"));
       }
     },
   });
@@ -59,6 +65,17 @@ function App() {
     requestPlaceholder: "Waiting...",
     requestFallback: "Request failed. Please try again later.",
   });
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (
+      last &&
+      last.status !== "local" &&
+      !history.includes(`AI: ${last.message}`)
+    ) {
+      setHistory((prev) => [...prev, `AI: ${last.message}`]);
+    }
+  }, [messages]);
 
   return (
     <div>
@@ -87,12 +104,18 @@ function App() {
         >
           <Bubble.List
             roles={roles}
-            items={messages.map(({ id, message, status }) => ({
-              key: id,
-              loading: status === "loading",
-              role: status === "local" ? "local" : "ai",
-              content: message,
-            }))}
+            items={messages.map(
+              (msg: {
+                id: string | number;
+                message: string;
+                status: string;
+              }) => ({
+                key: msg.id,
+                loading: msg.status === "loading",
+                role: msg.status === "local" ? "local" : "ai",
+                content: msg.message,
+              })
+            )}
           />
           <Sender
             loading={agent.isRequesting()}
@@ -106,13 +129,21 @@ function App() {
                 | boolean
                 | object
                 | { message: string }
-                | (Omit<XRequestParams, "message"> & {
+                // Removed XRequestParams as it is not defined
+                | {
                     message:
                       | "Waiting..."
                       | "Mock failed return. Please try again later.";
-                  } & AnyObject)
+                  }
             ) => {
-              onRequest(nextContent);
+              const userMessage =
+                typeof nextContent === "string"
+                  ? nextContent
+                  : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (nextContent as any).message;
+              const updatedHistory = [...history, `You: ${userMessage}`];
+              setHistory(updatedHistory);
+              onRequest({ message: userMessage, history: updatedHistory });
               setContent("");
             }}
           />
