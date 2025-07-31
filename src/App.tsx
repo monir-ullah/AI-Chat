@@ -30,7 +30,7 @@ function App() {
     string
   >({
     request: async (
-      { message, history }: { message: string; history: string[] },
+      { message }: { message: string },
       {
         onSuccess,
         onError,
@@ -40,18 +40,22 @@ function App() {
       }
     ) => {
       try {
-        const response = await fetch("http://localhost:5000/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message,
-          }),
-        });
+        const response = await fetch(
+          "http://localhost:5000/api/v1/chat-app/message",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message,
+            }),
+          }
+        );
 
         const data = await response.json();
-        const result = data.response || "No response.";
+        console.log("API Response:", data);
+        const result = data.data || "No response.";
         onSuccess([result]);
       } catch (error) {
         console.error("API error:", error);
